@@ -37,6 +37,10 @@ from dotenv import load_dotenv
 from functools import lru_cache
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
 @lru_cache()
 def get_env_variables():
     load_dotenv(override=True)
@@ -127,16 +131,16 @@ async def main(room_url: str, token: str):
         retriever = vectorstore.as_retriever()
         answer_prompt = ChatPromptTemplate.from_messages(
             [
-                ("system",
-                 """You are Andrej Karpathy, a Slovak-Canadian computer scientist who served as the director of artificial intelligence and Autopilot Vision at Tesla. \
-                 You co-founded and formerly worked at OpenAI, where you specialized in deep learning and computer vision. You publish Youtube videos in which you explain complex \
-                 machine learning concepts. Your job is to help people with the content in your Youtube videos given context . Keep your responses concise and relatively simple. \
-                 Ask for clarification if a user question is ambiguous. Be nice and helpful. Ensure responses contain only words. Check again that you have not included special characters other than '?' or '!'. \
-                 {context}"""
-                 ),
+                (
+                    "system",
+                    """You are a conversational AI bot with access to a vast knowledge base. Your goal is to engage in meaningful conversations with users, providing helpful and informative responses. \
+                    Utilize the context and information available through RAG techniques to create succinct and relevant answers. Be personable, friendly, and ask for clarification if a user's question is ambiguous. \
+                    Ensure your responses contain only words and avoid using special characters other than '?' or '!'. {context}""",
+                ),
                 MessagesPlaceholder("chat_history"),
                 ("human", "{input}"),
-            ])
+            ]
+        )
         question_answer_chain = create_stuff_documents_chain(llm, answer_prompt)
         rag_chain = create_retrieval_chain(retriever, question_answer_chain)
         history_chain = RunnableWithMessageHistory(
@@ -149,7 +153,16 @@ async def main(room_url: str, token: str):
         lc = LangchainRAGProcessor(chain=history_chain)
         avt = AudioVolumeTimer()
         tl = TranscriptionTimingLogger(avt)
-        tma_in = LLMUserResponseAggregator()
+        
+        
+        messages = [
+                {
+                    "role": "system",
+                    "content": "You are a fast, low-latency chatbot. Your goal is to demonstrate voice-driven AI capabilities at human-like speeds. The technology powering you is Daily for transport, Cerebrium for serverless infrastructure, Llama 3 (8-B version) LLM, and Deepgram for speech-to-text and text-to-speech. You are hosted on the east coast of the United States. Respond to what the user said in a creative and helpful way, but keep responses short and legible. Ensure responses contain only words. Check again that you have not included special characters other than '?' or '!'.",
+                },
+        ]
+        
+        tma_in = LLMUserResponseAggregator(messages)
         tma_out = LLMAssistantResponseAggregator()
         pipeline = Pipeline([
             transport.input(),
@@ -177,35 +190,36 @@ async def main(room_url: str, token: str):
 
         # @transport.event_handler("on_first_participant_joined")
         # async def on_first_participant_joined(transport, participant):
-        #     print(participant["id"])
-        #     transport.capture_participant_transcription(participant["id"])
-        #     lc.set_participant_id(participant["id"])
+      
             
-            
-        @transport.event_handler("on_first_participant_joined")
-        async def on_first_participant_joined(transport, participant):
+        @transport.event_handler("on_participant_joined")
+        async def on_participant_joined(transport, participant):
             # Kick off the conversation.
             time.sleep(1.5)
             messages.append(
                 {
                     "role": "system",
-                    "content": "Introduce yourself by saying 'hello, I'm FastBot, how can I help you today?'",
+                    "content": "Introduce yourself by saying 'hey, William, whats up?'",
                 }
             )
+            print(participant["id"])
+            transport.capture_participant_transcription(participant["id"])
+            lc.set_participant_id(participant["id"])
+          
             await task.queue_frame(LLMMessagesFrame(messages))    
 
-        @transport.event_handler("on_participant_left")
-        async def on_participant_left(transport, participant, reason):
-            await task.queue_frame(EndFrame())
+        #@transport.event_handler("on_participant_left")
+        #async def on_participant_left(transport, participant, reason):
+            # await task.queue_frame(EndFrame())
 
-        @transport.event_handler("on_call_state_updated")
-        async def on_call_state_updated(transport, state):
-            if state == "left":
-                await task.queue_frame(EndFrame())
+        #@transport.event_handler("on_call_state_updated")
+        # async def on_call_state_updated(transport, state):
+            # if state == "left":
+                # await task.queue_frame(EndFrame())
 
         runner = PipelineRunner()
         await runner.run(task)
-        await session.close()
+        # await session.close()
         
         
         
@@ -232,8 +246,8 @@ def create_room():
     }
     data = {
         "properties": {
-            "exp": int(time.time()) + 60*5, ##5 mins
-            "eject_at_room_exp" : True
+            "exp": int(time.time()) + 60*180, ##5 mins
+            "eject_at_room_exp" : True,
         }
     }
 
@@ -307,8 +321,9 @@ if __name__ == "__main__":
     if room_info.get("status_code", 200) == 200:
         room_url = room_info["url"]
         token = room_info["token"]
-        print(f"Created Daily room URL: {room_url}")
-        print(f"Token: {token}")
+        print(f"\n\n\n\n\n\n\n\n\n\nCreated Daily room URL:\n\n\n {room_url}\n\n\n\n\n\n\n\n\n\n")
+        print(f"\n\n\n\n\n\n\n\n\n\nToken: \n\n\n{token}\n\n\n\n\n\n\n\n\n\n")
         asyncio.run(start_bot(room_url, token))
     else:
         print(room_info.get("message", "Failed to create room"))
+
