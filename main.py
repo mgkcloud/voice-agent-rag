@@ -32,6 +32,7 @@ from helpers import (
     ElevenLabsTurbo
 )
 from redisvl.schema import IndexSchema
+from elevenlabs import VoiceSettings
 
 from dotenv import load_dotenv
 from functools import lru_cache
@@ -96,9 +97,14 @@ async def main(room_url: str, token: str):
         tts = ElevenLabsTurbo(
             aiohttp_session=session,
             api_key=env_vars["ELEVENLABS_API_KEY"], 
-            voice_id="EXAVITQu4vr4xnSDxMaL",
+            voice_id="WLKp2jV6nrS8aMkPPDRO",
+            voice_settings=VoiceSettings(
+                stability=0.6,
+                similarity_boost=0.5,
+                style=0.2,
+            ),
         )
-        llm = ChatGoogleGenerativeAI(model="gemini-pro", api_key=env_vars["GOOGLE_API_KEY"], convert_system_message_to_human=True)
+        llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", api_key=env_vars["GOOGLE_API_KEY"], convert_system_message_to_human=True)
         
         custom_schema = {
             "index": {"name": "gdrive", "prefix": "doc"},
@@ -158,7 +164,7 @@ async def main(room_url: str, token: str):
         messages = [
                 {
                     "role": "system",
-                    "content": "You are a fast, low-latency chatbot. Your goal is to demonstrate voice-driven AI capabilities at human-like speeds. The technology powering you is Daily for transport, Cerebrium for serverless infrastructure, Llama 3 (8-B version) LLM, and Deepgram for speech-to-text and text-to-speech. You are hosted on the east coast of the United States. Respond to what the user said in a creative and helpful way, but keep responses short and legible. Ensure responses contain only words. Check again that you have not included special characters other than '?' or '!'.",
+                    "content": "You are a fast, low-latency chatbot. Your goal is to demonstrate voice-driven AI capabilities at human-like speeds. Respond to what the user said in a creative and helpful way, but keep responses short and legible. Ensure responses contain only words. Keep responses under 2 sentences. Check again that you have not included special characters other than '?' or '!'.",
                 },
         ]
         
@@ -181,12 +187,6 @@ async def main(room_url: str, token: str):
             report_only_initial_ttfb=True,
         ))
         
-        messages = [
-            {
-                "role": "system",
-                "content": "You are a fast, low-latency chatbot. Your goal is to demonstrate voice-driven AI capabilities at human-like speeds. The technology powering you is Daily for transport, Cerebrium for serverless infrastructure, Llama 3 (8-B version) LLM, and Deepgram for speech-to-text and text-to-speech. You are hosted on the east coast of the United States. Respond to what the user said in a creative and helpful way, but keep responses short and legible. Ensure responses contain only words. Check again that you have not included special characters other than '?' or '!'.",
-            },
-        ]
 
         # @transport.event_handler("on_first_participant_joined")
         # async def on_first_participant_joined(transport, participant):
@@ -321,9 +321,13 @@ if __name__ == "__main__":
     if room_info.get("status_code", 200) == 200:
         room_url = room_info["url"]
         token = room_info["token"]
-        print(f"\n\n\n\n\n\n\n\n\n\nCreated Daily room URL:\n\n\n {room_url}\n\n\n\n\n\n\n\n\n\n")
-        print(f"\n\n\n\n\n\n\n\n\n\nToken: \n\n\n{token}\n\n\n\n\n\n\n\n\n\n")
+        
+        # Write the room URL and token to a txt file
+        with open("daily_room_info.txt", "w") as file:
+            file.write(f"VITE_DAILY_URL={room_url}\n")
+            file.write(f"VITE_DAILY_TOKEN={token}\n")
+        
+        print("\n\n\n\n\n\n\n\n\n\nRoom URL and token have been written to daily_room_info.txt\n\n\n\n\n\n\n\n\n\n")
         asyncio.run(start_bot(room_url, token))
     else:
         print(room_info.get("message", "Failed to create room"))
-

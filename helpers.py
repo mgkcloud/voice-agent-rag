@@ -33,6 +33,8 @@ from pipecat.services.openai import OpenAILLMContext, OpenAILLMContextFrame
 
 from pipecat.services.elevenlabs import ElevenLabsTTSService
 
+from elevenlabs import VoiceSettings
+
 class GreedyLLMAggregator(FrameProcessor):
     def __init__(self, context: OpenAILLMContext = None, **kwargs):
         super().__init__(**kwargs)
@@ -133,6 +135,7 @@ class ElevenLabsTurbo(ElevenLabsTTSService):
             aiohttp_session: aiohttp.ClientSession,
             api_key: str,
             voice_id: str,
+            voice_settings: VoiceSettings = None,
             model: str = "eleven_turbo_v2_5",
             **kwargs):
         super().__init__(aiohttp_session=aiohttp_session, api_key=api_key, voice_id=voice_id, **kwargs)
@@ -141,6 +144,7 @@ class ElevenLabsTurbo(ElevenLabsTTSService):
         self._voice_id = voice_id
         self._aiohttp_session = aiohttp_session
         self._model = model
+        self._voice_settings = voice_settings
 
 
 @dataclass
