@@ -1,38 +1,31 @@
-from loguru import logger
+
 import asyncio
 import math
 import struct
 import time
+import os
+import requests
 from dataclasses import dataclass, field
-from typing import List
-from typing import Union
+from typing import List, Union
 import aiohttp
+from loguru import logger
+
+from pipecat.transports.services.helpers.daily_rest import DailyRoomParams, DailyRoomProperties, DailyRoomSipParams
+
 
 from pipecat.processors.frameworks.langchain import LangchainProcessor
-
-from langchain_core.messages import AIMessageChunk
-from langchain_core.runnables import Runnable
-
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.frames.frames import (
-    Frame,
-    AudioRawFrame,
-    InterimTranscriptionFrame,
-    TranscriptionFrame,
-    TextFrame,
-    StartInterruptionFrame,
-    LLMFullResponseStartFrame,
-    LLMFullResponseEndFrame,
-    TTSStoppedFrame,
-    MetricsFrame
+    Frame, AudioRawFrame, InterimTranscriptionFrame, TranscriptionFrame,
+    TextFrame, StartInterruptionFrame, LLMFullResponseStartFrame,
+    LLMFullResponseEndFrame, TTSStoppedFrame, MetricsFrame, LLMMessagesFrame
 )
-
 from pipecat.vad.vad_analyzer import VADAnalyzer, VADState
 from pipecat.services.elevenlabs import ElevenLabsTTSService
 from pipecat.services.openai import OpenAILLMContext, OpenAILLMContextFrame
 
-from pipecat.services.elevenlabs import ElevenLabsTTSService
-
+from langchain_core.messages import AIMessageChunk
+from langchain_core.runnables import Runnable
 from elevenlabs import VoiceSettings
 
 class GreedyLLMAggregator(FrameProcessor):
@@ -342,3 +335,105 @@ class AudioVolumeTimer(FrameProcessor):
             db = -96  # Minimum value (almost silent)
 
         return db
+    
+    
+    
+def get_env_variables():
+    from dotenv import load_dotenv
+    load_dotenv(override=True)
+    return {
+        "GOOGLE_API_KEY": os.getenv("GOOGLE_API_KEY"),
+        "REDIS_URL": os.getenv("REDIS_URL"),
+        "ELEVENLABS_API_KEY": os.getenv("ELEVENLABS_API_KEY"),
+        "DEEPGRAM_API_KEY": os.getenv("DEEPGRAM_API_KEY"),
+        "DAILY_TOKEN": os.getenv("DAILY_TOKEN"),
+        "CARTESIA_API_KEY": os.getenv("CARTESIA_API_KEY"),
+    }
+
+def create_room():
+    env_vars = get_env_variables()
+    daily_token = env_vars["DAILY_TOKEN"]
+    url = "https://api.daily.co/v1/rooms/"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {daily_token}"
+    }
+    data = {
+        "properties": {
+            "exp": int(time.time()) + 60*180,  # 3 hours
+            "eject_at_room_exp": True,
+            "sip": {
+                "display_name": "sip-dialin",
+                "video": False,
+                "sip_mode": "dial-in",
+                "num_endpoints": 1
+            }
+        }
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        room_info = response.json()
+        token = create_token(room_info['name'])
+        if token and 'token' in token:
+            room_info['token'] = token['token']
+            room_info['sip_endpoint'] = room_info.get('config', {}).get('sip_uri', {}).get('endpoint')
+            logger.info(f"Room created successfully: {room_info['name']}, SIP endpoint: {room_info['sip_endpoint']}")
+            return room_info
+        else:
+            logger.error("Failed to create token")
+            return {"message": 'There was an error creating your room', "status_code": 500}
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Failed to create room: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            logger.error(f"Response content: {e.response.content}")
+        return {"message": f'There was an error creating your room: {str(e)}', "status_code": 500}
+
+def create_token(room_name: str):
+    env_vars = get_env_variables()
+    url = "https://api.daily.co/v1/meeting-tokens"
+    daily_token = env_vars["DAILY_TOKEN"]
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {daily_token}"
+    }
+    data = {
+        "properties": {
+            "room_name": room_name,
+            "is_owner": True,
+        }
+    }
+
+    response = requests.post(url, headers=headers, json=data)
+    if response.status_code == 200:
+        token_info = response.json()
+        return token_info
+    else:
+        logger.error(f"Failed to create token: {response.status_code}")
+        return None
+
+async def check_deepgram_model_status():
+    env_vars = get_env_variables()
+    deepgramkey = env_vars["DEEPGRAM_API_KEY"]
+    url = "https://api.deepgram.com/v1/status/engine"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Token {deepgramkey}"
+    }
+    max_retries = 10
+    async with aiohttp.ClientSession() as session:
+        for _ in range(max_retries):
+            logger.info("Trying Deepgram local server")
+            try:
+                async with session.get(url, headers=headers) as response:
+                    if response.status == 200:
+                        json_response = await response.json()
+                        logger.info(json_response)
+                        if json_response.get('engine_connection_status') == 'Connected':
+                            logger.info("Connected to deepgram local server")
+                            return True
+            except aiohttp.ClientConnectionError:
+                logger.warning("Connection refused, retrying...")
+            await asyncio.sleep(10)
+    return False
